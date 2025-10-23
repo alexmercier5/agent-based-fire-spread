@@ -2,11 +2,16 @@ import rasterio
 import matplotlib.pyplot as plt
 from rasterio.enums import Resampling
 import numpy as np
+import os
 
 def read_tif(tif_path):
+    print("Current working directory:", os.getcwd())
+    print("Absolute path to TIFF:", os.path.abspath(tif_path))
     # Open with rasterio
     with rasterio.open(tif_path) as src:
-        data = src.read(1)  # Read the first band (use different index if multi-band)
+        data = src.read(1)  # Read the first band
+        data = src.read(2)  # Read the band, can be 1 through 10 for each tif layer
+        print(data)
         profile = src.profile  # metadata dictionary
         bounds = src.bounds
         res = src.res  # pixel size (xres, yres)
@@ -34,9 +39,12 @@ def read_tif(tif_path):
 
     print(f"Landscape size: {width_m:.2f} m × {height_m:.2f} m")
 
+import rasterio
+from rasterio.enums import Resampling
+
 def resample_tif(tif_path, out_path, target_pixel_size=100):
     """
-    Resample a GeoTIFF to a new pixel size and save as a new file.
+    Resample all bands of a multi-band GeoTIFF to a new pixel size and save as a new file.
 
     Parameters:
         tif_path (str): Path to input GeoTIFF.
@@ -45,18 +53,23 @@ def resample_tif(tif_path, out_path, target_pixel_size=100):
     """
 
     with rasterio.open(tif_path) as src:
-        # Calculate scale factor
         scale_factor = target_pixel_size / src.res[0]  # assuming square pixels
 
         new_width = int(src.width / scale_factor)
         new_height = int(src.height / scale_factor)
 
-        # Resample data
-        data_resampled = src.read(
-            1,
-            out_shape=(new_height, new_width),
-            resampling=Resampling.average
-        )
+        # Read and resample all bands
+        data_resampled = []
+        for i in range(1, src.count + 1):
+            band = src.read(
+                i,
+                out_shape=(new_height, new_width),
+                resampling=Resampling.average
+            )
+            data_resampled.append(band)
+
+        # Stack bands back into a single array with shape (bands, rows, cols)
+        data_resampled = np.stack(data_resampled, axis=0)
 
         # Update metadata for the new file
         transform = src.transform * src.transform.scale(
@@ -68,15 +81,18 @@ def resample_tif(tif_path, out_path, target_pixel_size=100):
         profile.update({
             'height': new_height,
             'width': new_width,
-            'transform': transform
+            'transform': transform,
+            'count': src.count
         })
 
-        # Write new GeoTIFF
+        # Write all bands to new GeoTIFF
         with rasterio.open(out_path, 'w', **profile) as dst:
-            dst.write(data_resampled, 1)
+            for i in range(src.count):
+                dst.write(data_resampled[i], i + 1)
 
         print(f"Resampled GeoTIFF saved to {out_path}")
-        print("Resampled shape:", data_resampled.shape)
+        print("Resampled shape (bands, rows, cols):", data_resampled.shape)
+
 
 
 if __name__ == "__main__":
@@ -84,6 +100,6 @@ if __name__ == "__main__":
     tif_path = "./main.tif"
     out_path = "./resampled_main.tif"
 
-    read_tif(out_path)
     read_tif(tif_path)
-    #resample_tif(tif_path, out_path)
+    # read_tif(out_path)
+    resample_tif(tif_path, out_path)
