@@ -1,6 +1,5 @@
 import contextlib
-with contextlib.redirect_stdout(None):
-    from mesa import Agent
+from mesa import Agent
 
 class CellAgent(Agent):
     def __init__(self, model, unique_id, row, col, elevation=0.0, slope=0.0, aspect=0.0, fuel=0.0, canopy_cover=0.0):

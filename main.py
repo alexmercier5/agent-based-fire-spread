@@ -13,10 +13,9 @@ agent-based-fire-spread/
     └─ raster_utils.py   # functions for reading/resampling TIFF
 '''
 import contextlib
-with contextlib.redirect_stdout(None):
-    import os
-    import numpy as np
-    from model.fire_model import FireSpreadModel
+import os
+import numpy as np
+from model.fire_model import FireSpreadModel
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))

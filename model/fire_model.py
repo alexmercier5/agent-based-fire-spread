@@ -1,11 +1,10 @@
 import contextlib
-with contextlib.redirect_stdout(None):
-    import rasterio
-    import os
-    from mesa import Model
-    from mesa.space import MultiGrid
-    from model.cell_agent import CellAgent
-    from mesa import DataCollector
+import rasterio
+import os
+from mesa import Model
+from mesa.space import MultiGrid
+from model.cell_agent import CellAgent
+from mesa import DataCollector
     
 
 
