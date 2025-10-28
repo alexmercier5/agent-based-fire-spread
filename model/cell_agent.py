@@ -1,5 +1,6 @@
 import contextlib
 from mesa import Agent
+import numpy as np
 
 class CellAgent(Agent):
     def __init__(self, model, unique_id, row, col, elevation=0.0, slope=0.0, aspect=0.0, fuel=0.0, canopy_cover=0.0):
@@ -7,14 +8,18 @@ class CellAgent(Agent):
         self.unique_id = unique_id
         self.row = row
         self.col = col
-        self.elevation = elevation  # Layer 1
-        self.slope = slope      # Layer 2
-        self.aspect = aspect    # Layer 3
-        self.fuel = fuel        # Layer 4
-        self.canopy_cover = canopy_cover    # Layer 5
-        self.burning = False    
-        self.burned = False     
-        self.unburned = True   
+        #self.pos = (col, row)  # Mesa grid uses (x, y)
+        self.elevation = elevation
+        self.slope = slope
+        self.aspect = aspect
+        self.fuel = fuel
+        self.canopy_cover = canopy_cover
+
+        self.burning = False
+        self.burned = False
+        self.arrival_time = np.inf
+        self.burn_time = None
+        self.rate_of_spread = 0.0
         '''
         https://owfflammaphelp62.firenet.gov/FileTypes/PU_Landscape_File.htm
         https://owfflammaphelp62.firenet.gov/AnalysisCMDs/Get_Landscape.htm
@@ -28,10 +33,12 @@ class CellAgent(Agent):
         '''
 
     def step(self):
+        # Just update burned state if currently burning
         if self.burning and not self.burned:
-            self.burned = True
-            # Ignite neighbors
-            neighbors = self.model.grid.get_neighbors(self.pos, moore=True, include_center=False)
-            for n in neighbors:
-                if not n.burning and not n.burned and n.fuel > 0:
-                    n.burning = True
+            if self.burn_time is None:
+                self.burn_time = self.model.time
+            elif self.model.time > self.burn_time:
+                self.burned = True
+                self.burning = False
+        elif not self.burning and not self.burned and self.model.time >= self.arrival_time:
+            self.burning = True

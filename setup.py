@@ -89,7 +89,7 @@ def resample_tif(tif_path, out_path, target_pixel_size=100):
         with rasterio.open(out_path, 'w', **profile) as dst:
             for i in range(src.count):
                 dst.write(data_resampled[i], i + 1)
-
+        print(data_resampled[3])
         print(f"Resampled GeoTIFF saved to {out_path}")
         print("Resampled shape (bands, rows, cols):", data_resampled.shape)
 

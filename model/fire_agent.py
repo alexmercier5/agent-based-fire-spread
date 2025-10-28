@@ -1,77 +1,111 @@
 import math
 import mesa
+import numpy as np
+from mesa import Agent
+from model.cell_agent import CellAgent
 
-class FireAgent(mesa.Agent):
-    """
-    Fire agent using the Rothermel (1972) surface fire spread model
-    with Albini (1976) wind and slope corrections.
-    """
-    def __init__(self, model, unique_id, fuel_load, fuel_density, heat_content, 
+class FireAgent(Agent):
+    def __init__(self, model, unique_id, fuel_load, fuel_density, heat_content,
                  wind_speed, slope_deg, moisture_content):
         super().__init__(model)
-        self.fuel_load = fuel_load          # w0, lb/ft^2
-        self.fuel_density = fuel_density    # ρp, lb/ft^3
-        self.heat_content = heat_content    # h, Btu/lb
-        self.wind_speed = wind_speed        # ft/min
-        self.slope_deg = slope_deg          # degrees
+        self.fuel_load = fuel_load
+        self.fuel_density = fuel_density
+        self.heat_content = heat_content
+        self.wind_speed = wind_speed
+        self.slope_deg = slope_deg
         self.moisture_content = moisture_content
-        self.burning = False
-        self.rate_of_spread = 0.0           # ft/min
 
-        # Constants (can be refined per fuel model)
-        self.xi = 0.3            # Propagating flux ratio (empirical)
-        self.epsilon = 0.9       # Effective heating number
-        self.Q_ig = 250.0        # Heat of preignition (Btu/lb)
-        self.I_R = 100.0         # Reaction intensity (Btu/ft²/min)
-        self.rho_b = 0.02        # Bulk density (lb/ft³)
+        self.burning = True  # FireAgent is “active” by default
+        self.rate_of_spread = 0.0
+        self.wind_direction = 0.0  # No wind as default
 
-        # Albini constants
+        # Constants
+        self.xi = 0.3
+        self.epsilon = 0.9
+        self.Q_ig = 250.0
+        self.I_R = 100.0
+        self.rho_b = 0.02
         self.C = 0.045
         self.B = 2.0
         self.E = 0.715
 
-    def compute_packing_ratio(self):
-        """
-        Compute actual and optimal packing ratios.
-        """
-        beta = self.rho_b / self.fuel_density
-        beta_op = 3.348 * (beta ** 0.8189)  # approximate relation
-        return beta, beta_op
+    # def compute_rate_of_spread(self):
+    #     beta = self.rho_b / self.fuel_density
+    #     beta_op = 3.348 * (beta ** 0.8189)
+    #     phi_w = self.C * (self.wind_speed ** self.B) * ((beta / beta_op) ** -self.E)
+    #     phi_s = 5.275 * (beta ** -0.3) * (math.tan(math.radians(self.slope_deg)) ** 2)
+    #     numerator = self.I_R * self.xi * (1 + phi_w + phi_s)
+    #     denominator = self.rho_b * self.epsilon * self.Q_ig
+    #     self.rate_of_spread = numerator / denominator
+    #     return self.rate_of_spread
 
-    def compute_wind_factor(self, beta, beta_op):
-        """
-        Compute Albini (1976) wind factor φw.
-        """
+    def compute_rate_of_spread(self, cell, neighbor):
+        # Incorporate fuel and slope factors
+        fuel_load = neighbor.fuel
+        fuel_density = self.fuel_density  # should get these values from neighboring cells instead
+        heat_content = self.heat_content
+        moisture = self.moisture_content
+
+        rho_b = fuel_density  # or another cell-specific bulk density
+        beta = rho_b / fuel_density
+        beta_op = 3.348 * (beta ** 0.8189)
+
+        # Wind and slope
         phi_w = self.C * (self.wind_speed ** self.B) * ((beta / beta_op) ** -self.E)
-        return phi_w
+        phi_s = 5.275 * (beta ** -0.3) * (math.tan(math.radians(neighbor.slope)) ** 2)
 
-    def compute_slope_factor(self, beta):
-        """
-        Compute Albini (1976) slope factor φs.
-        """
-        slope_rad = math.radians(self.slope_deg)
-        phi_s = 5.275 * (beta ** -0.3) * (math.tan(slope_rad) ** 2)
-        return phi_s
+        # Reaction intensity can also scale with fuel load
+        I_R = self.I_R * (fuel_load / 0.5)  # normalize to your reference fuel load
 
-    def compute_rate_of_spread(self):
-        """
-        Compute the final rate of spread (ft/min) using Rothermel.
-        """
-        beta, beta_op = self.compute_packing_ratio()
-        phi_w = self.compute_wind_factor(beta, beta_op)
-        phi_s = self.compute_slope_factor(beta)
+        # Direction relative to slope factor
+        dx = neighbor.col - cell.col
+        dy = neighbor.row - cell.row
+        angle_to_neighbor = math.atan2(dy, dx)
+        wind_angle = math.radians(self.wind_direction)
+        direction_factor = max(0.1, math.cos(angle_to_neighbor - wind_angle))
 
-        numerator = self.I_R * self.xi * (1 + phi_w + phi_s)
-        denominator = self.rho_b * self.epsilon * self.Q_ig
 
-        self.rate_of_spread = numerator / denominator
+        # Compute R
+        numerator = I_R * self.xi * (1 + phi_w + phi_s)
+        denominator = rho_b * self.epsilon * self.Q_ig
+        R_eff = direction_factor * numerator / denominator
 
-        return self.rate_of_spread, phi_w, phi_s
+        return R_eff
 
     def step(self):
         """
-        Fire behavior update step.
+        Spread fire from burning cells to neighbors, update arrival times.
         """
-        if self.burning:
-            R, phi_w, phi_s = self.compute_rate_of_spread()
-            print(f"🔥 FireAgent {self.unique_id}: R={R:.3f} ft/min, φw={phi_w:.3f}, φs={phi_s:.3f}")
+        # Loop over all grid cells
+        for item in self.model.grid.coord_iter():
+            # Handle both possible return formats
+            if len(item) == 2:
+                cell_contents, (x, y) = item
+            elif len(item) == 3:
+                cell_contents, x, y = item
+            else:
+                raise ValueError(f"Unexpected coord_iter format: {item}")
+
+            for agent in cell_contents:
+                if isinstance(agent, CellAgent) and agent.burning:
+                    neighbors = self.model.grid.get_neighbors((x, y), moore=True, include_center=False)
+                    for n in neighbors:
+                        if isinstance(n, CellAgent) and not n.burning and not n.burned and n.fuel > 0:
+                            # Compute spread based on rate_of_spread
+                            R_eff = self.compute_rate_of_spread(agent, n)
+                            dx = abs(n.col - agent.col)
+                            dy = abs(n.row - agent.row)
+                            dist = np.hypot(dx, dy)
+                            dt = dist / R_eff if R_eff > 0 else float('inf')
+                            arrival_time = self.model.time + dt
+                            n.arrival_time = min(n.arrival_time, arrival_time)
+                    
+
+                elif isinstance(agent, CellAgent) and not agent.burning and not agent.burned and self.model.time >= agent.arrival_time:
+                    agent.burning = True
+
+
+                            # if arrival_time < n.arrival_time:
+                            #     n.arrival_time = arrival_time
+                            # if self.model.time >= n.arrival_time:
+                            #     n.burning = True
