@@ -28,11 +28,10 @@ class CellAgent(Agent):
         '''
 
     def step(self):
-        if self.burning:
-            for neighbor in self.model.grid.get_neighbors(
-                (self.col, self.row), moore=True, include_center=False
-            ):
-                if not neighbor.burning and not neighbor.burned and neighbor.fuel > 0:
-                    neighbor.burning = True
-            self.burning = False
+        if self.burning and not self.burned:
             self.burned = True
+            # Ignite neighbors
+            neighbors = self.model.grid.get_neighbors(self.pos, moore=True, include_center=False)
+            for n in neighbors:
+                if not n.burning and not n.burned and n.fuel > 0:
+                    n.burning = True

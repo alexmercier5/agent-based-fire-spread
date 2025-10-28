@@ -16,6 +16,8 @@ import contextlib
 import os
 import numpy as np
 from model.fire_model import FireSpreadModel
+from model.fire_agent import FireAgent
+from model.cell_agent import CellAgent
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -36,4 +38,7 @@ if __name__ == "__main__":
         rand_row = np.random.randint(0, model.rows)
         rand_col = np.random.randint(0, model.cols)
         sample_agent = model.grid.get_cell_list_contents([(rand_col, rand_row)])[0]
-        print(f"Sample Agent at ({rand_row}, {rand_col}) - Burning: {sample_agent.burning}, Burned: {sample_agent.burned}, Elevation: {sample_agent.elevation}, Slope: {sample_agent.slope}, Aspect: {sample_agent.aspect},Fuel: {sample_agent.fuel}, Canopy Cover: {sample_agent.canopy_cover}")
+        if isinstance(sample_agent, FireAgent):
+            pass
+        else:
+            print(f"Sample Agent at ({rand_row}, {rand_col}) - Burning: {sample_agent.burning}, Burned: {sample_agent.burned}, Elevation: {sample_agent.elevation}, Slope: {sample_agent.slope}, Aspect: {sample_agent.aspect},Fuel: {sample_agent.fuel}, Canopy Cover: {sample_agent.canopy_cover}")
