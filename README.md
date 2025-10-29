@@ -9,7 +9,7 @@ TODO:
 
 --Review default values -- ensure fire ignition point is accurate to fire .shp file from FlamMap
 
-    --In fire agent ensure that the Rothermel eqn uses as many neighbor values as possible rather than the default fire object values
+--In fire agent ensure that the Rothermel eqn uses as many neighbor values as possible rather than the default fire object values
 
 --Compile arrival times for all cell agents in data frame to compare with arrival times from FlamMap
 
