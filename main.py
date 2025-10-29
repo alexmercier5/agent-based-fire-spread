@@ -1,18 +1,22 @@
 '''
 Basic framework for mesa model
-agent-based-fire-spread/
-├─ .env/                 # 
-├─ main_resampled.tif
-├─ main.py               # entry point for your Mesa model
-├─ model/
-│   ├─ __init__.py
-│   ├─ fire_model.py     # Mesa Model class
-│   ├─ cell_agent.py     # Individual grid cell agent
-│   └─ fire_agent.py     # Fire agent (optional)
-└─ utils/
-    └─ setup.py   # functions for reading/resampling TIFF
-    └─ visualization.py # functions for setting up server based visualization: IN PROGRESS
-    └─ fuel_cmap.csv  # fuel colormap data
+Directory structure:
+fire-spread/ # root directory
+    ├─ .env/                 # virtual environment
+    └─ .vscode/              # VSCode settings
+    └─ agent-based-fire-spread/ # main model directory - GitHub repo
+        ├─ main.py               # Entry point for running the model and visualizing results -- contains plotting functions and running model
+        ├─ model/
+        │   ├─ __init__.py
+        │   ├─ fire_model.py     # Mesa Model class - instantiates the cell and fire agents and handles data collector/stepping of the model
+        │   ├─ cell_agent.py     # Individual grid cell agent - includes tif layer properties, transitions cells to burned state, keeps track of arrival times
+        │   └─ fire_agent.py     # Fire agent - handles fire spread logic, rate of spread calculations, tells cell agent when to start burning
+        └─ utils/
+            └─ setup.py   # functions for reading/resampling TIFF
+            └─ visualization.py # functions for setting up server based visualization: IN PROGRESS
+            └─ fuel_cmap.csv  # fuel colormap data
+            └─ main.tif # original tif file
+            └─ resampled_main.tif # resampled tif file - scaled down to 100 x 100 m cell size
 '''
 import contextlib
 import os
