@@ -10,7 +10,9 @@ agent-based-fire-spread/
 │   ├─ cell_agent.py     # Individual grid cell agent
 │   └─ fire_agent.py     # Fire agent (optional)
 └─ utils/
-    └─ raster_utils.py   # functions for reading/resampling TIFF
+    └─ setup.py   # functions for reading/resampling TIFF
+    └─ visualization.py # functions for setting up server based visualization: IN PROGRESS
+    └─ fuel_cmap.csv  # fuel colormap data
 '''
 import contextlib
 import os
@@ -83,20 +85,16 @@ def plot_fire_grid(model, fuel_cmap_path="fuel_cmap.csv"):
 
 
 if __name__ == "__main__":
-
-    if 'model' in globals():
-        del model
-        gc.collect()
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    tif_path = os.path.join(script_dir, "resampled_main.tif")
-    cmap_path = os.path.join(script_dir, "fuel_cmap.csv")
+    tif_path = os.path.join(script_dir, "utils/resampled_main.tif")
+    cmap_path = os.path.join(script_dir, "utils/fuel_cmap.csv")
     model = FireSpreadModel(tif_path)
 
     
     plot_fire_grid(model, fuel_cmap_path=cmap_path)
-    for step in range(10000):
+    for step in range(900):
         model.step()
-        print(f"Step {step + 1} completed")
+        #print(f"Step {step + 1} completed")
 
         if step % 10 == 0:
             print(f"Plotting fire grid at step {step}")
@@ -112,3 +110,4 @@ if __name__ == "__main__":
         #     pass
         # else:
         #     print(f"Sample Agent at ({test_row}, {test_col}) - Burning: {sample_agent.burning}, Burned: {sample_agent.burned}, Elevation: {sample_agent.elevation}, Slope: {sample_agent.slope}, Aspect: {sample_agent.aspect},Fuel: {sample_agent.fuel}, Canopy Cover: {sample_agent.canopy_cover}")
+    
