@@ -12,10 +12,15 @@ fire-spread/ # root directory
         │   ├─ cell_agent.py     # Individual grid cell agent - includes tif layer properties, transitions cells to burned state, keeps track of arrival times
         │   └─ fire_agent.py     # Fire agent - handles fire spread logic, rate of spread calculations, tells cell agent when to start burning
         └─ utils/
+            └─ comparison.py # used for analysis comparing model output to flammap output
             └─ setup.py   # functions for reading/resampling TIFF
+            └─ output_utils.py  # functions for exporting model output to CSV
             └─ visualization.py # functions for setting up server based visualization: IN PROGRESS
             └─ fuel_cmap.csv  # fuel colormap data
-            └─ main.tif # original tif file
+            └─ flammap_arrival_times.csv # flammap output for comparison
+            └─ original_flammap_mtts.csv # flammap output for comparison with first line labeled for columns
+            └─ fire_arrival_times.csv # output file arrival times from this model
+            └─ 8900main.tif # original tif file - currently using this because resampled_main.tif not running with flammap
             └─ resampled_main.tif # resampled tif file - scaled down to 100 x 100 m cell size
 '''
 import contextlib
@@ -94,10 +99,11 @@ if __name__ == "__main__":
     tif_path = os.path.join(script_dir, "utils/8900main.tif")
     cmap_path = os.path.join(script_dir, "utils/fuel_cmap.csv")
     model = FireSpreadModel(tif_path)
+    saveMTTS = True
 
     
     #plot_fire_grid(model, fuel_cmap_path=cmap_path)
-    for step in range(500):
+    for step in range(100):
         model.step()
         #print(f"Step {step + 1} completed")
 
@@ -115,4 +121,6 @@ if __name__ == "__main__":
         #     pass
         # else:
         #     print(f"Sample Agent at ({test_row}, {test_col}) - Burning: {sample_agent.burning}, Burned: {sample_agent.burned}, Elevation: {sample_agent.elevation}, Slope: {sample_agent.slope}, Aspect: {sample_agent.aspect},Fuel: {sample_agent.fuel}, Canopy Cover: {sample_agent.canopy_cover}")
-    export_fire_arrival_times(model, output_path="fire_arrival_times.csv")
+    if saveMTTS:
+        export_fire_arrival_times(model, output_path="utils/fire_arrival_times.csv")
+    print("Simulation complete.")
