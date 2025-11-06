@@ -31,7 +31,7 @@ print("ABM neighbor arrival times:\n", neighbors_abm)
 print("FlamMap neighbor arrival times:\n", neighbors_flammap)
 
 
-#TODO: Need to ensure I save the ABM arrival times in the same format as FlamMap for proper comparison - this should be done now.
-'''
-Once proper format for arrival times compare neighbors of center cell and use a buffer to compare overall differences. Ex: if flammap has 100 min arrival for next cell and abm has 40 then need to add a 60 minute buffer to abm neighbors and can then compare how the rest of the grid looks.
-'''
+#TODO: Figure out how to run the resampled tif in flammap so faster computation times with ABM. Try setting the immediate neighbors to the exact same values that Flammap produce and evaluating after that. 
+# Possible differences could be due to the event-driven approach vs time-step approach. 
+# Write out ROS function to ensure units are correct
+# Write out time step process to ensure time step approach is correct
