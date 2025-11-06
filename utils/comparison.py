@@ -35,3 +35,4 @@ print("FlamMap neighbor arrival times:\n", neighbors_flammap)
 # Possible differences could be due to the event-driven approach vs time-step approach. 
 # Write out ROS function to ensure units are correct
 # Write out time step process to ensure time step approach is correct
+# Determine Flammap default wind direction -- assuming North to South due to direction of spread in output. 
