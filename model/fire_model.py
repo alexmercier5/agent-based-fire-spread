@@ -22,10 +22,16 @@ class FireSpreadModel(Model):
         aspect       = bands[2]
         fuel         = bands[3]
         canopy_cover = bands[4]
+        tree_height  = bands[5]
+        crown_base_height = bands[6]
+        crown_bulk_density = bands[7]
+        FCCS = bands[8]
         self.rows, self.cols = fuel.shape
 
         # Create grid
         self.grid = MultiGrid(self.cols, self.rows, torus=False)
+        self.cell_size = src.res[0]  # assuming square cells, in meters
+        #print(f"Cell size: {self.cell_size} meters")
 
         # Create CellAgents
         self.cell_agents = []
@@ -40,7 +46,11 @@ class FireSpreadModel(Model):
                     slope=float(slope[row, col]),
                     aspect=float(aspect[row, col]),
                     fuel=float(fuel[row, col]),
-                    canopy_cover=float(canopy_cover[row, col])
+                    canopy_cover=float(canopy_cover[row, col]),
+                    tree_height=float(tree_height[row, col]),
+                    crown_base_height=float(crown_base_height[row, col]),
+                    crown_bulk_density=float(crown_bulk_density[row, col]),
+                    FCCS=float(FCCS[row, col]),
                 )
                 self._agent_id_counter += 1
                 self.cell_agents.append(agent)
@@ -52,8 +62,8 @@ class FireSpreadModel(Model):
             unique_id=self._agent_id_counter,
             fuel_load=0.5,
             fuel_density=32.0,
-            heat_content=8000.0,
-            wind_speed=0.0,
+            heat_content=18000.0,
+            wind_speed=1.0,
             slope_deg=0.0,
             moisture_content=0.08
         )
@@ -65,6 +75,7 @@ class FireSpreadModel(Model):
         center_cell = self.grid.get_cell_list_contents([(center_col, center_row)])[0]
         center_cell.burning = True
         center_cell.arrival_time = 0.0
+        center_cell.is_ignition = True
         self.grid.place_agent(self.fire_agent, (center_col, center_row))
 
         # Data collector
@@ -81,7 +92,7 @@ class FireSpreadModel(Model):
         )
 
     def step(self):
-        self.time += 1
+        #self.time += 1
         self.datacollector.collect(self)
 
         # Step FireAgent

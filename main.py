@@ -96,7 +96,7 @@ def plot_fire_grid(model, fuel_cmap_path="fuel_cmap.csv"):
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    tif_path = os.path.join(script_dir, "utils/8900main.tif")
+    tif_path = os.path.join(script_dir, "utils/resampled_main.tif")
     cmap_path = os.path.join(script_dir, "utils/fuel_cmap.csv")
     model = FireSpreadModel(tif_path)
     saveMTTS = True
@@ -111,16 +111,11 @@ if __name__ == "__main__":
         #     print(f"Plotting fire grid at step {step}")
         #     plot_fire_grid(model, fuel_cmap_path=cmap_path)
 
-        # Print a random cell agent and its properties
-        # rand_row = np.random.randint(0, model.rows)
-        # rand_col = np.random.randint(0, model.cols)
-        # test_row = 94
-        # test_col = 94
-        # sample_agent = model.grid.get_cell_list_contents([(test_col, test_row)])[0]
-        # if sample_agent.__class__.__name__ == "FireAgent":
-        #     pass
-        # else:
-        #     print(f"Sample Agent at ({test_row}, {test_col}) - Burning: {sample_agent.burning}, Burned: {sample_agent.burned}, Elevation: {sample_agent.elevation}, Slope: {sample_agent.slope}, Aspect: {sample_agent.aspect},Fuel: {sample_agent.fuel}, Canopy Cover: {sample_agent.canopy_cover}")
+    plot_fire_grid(model, fuel_cmap_path=cmap_path)
     if saveMTTS:
-        export_fire_arrival_times(model, output_path="utils/fire_arrival_times.csv")
+        if tif_path.endswith("resampled_main.tif"):
+            output_csv = "./utils/resampled_fire_arrival_times.csv"
+        else:
+            output_csv = "./utils/fire_arrival_times.csv"
+        export_fire_arrival_times(model, output_path=output_csv)
     print("Simulation complete.")
