@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 from model.fire_model import FireSpreadModel
 from model.fire_agent import FireAgent
 from model.cell_agent import CellAgent
+from utils.output_utils import export_fire_arrival_times
 
 def load_fuel_cmap(csv_path):
     """
@@ -90,19 +91,19 @@ def plot_fire_grid(model, fuel_cmap_path="fuel_cmap.csv"):
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    tif_path = os.path.join(script_dir, "utils/resampled_main.tif")
+    tif_path = os.path.join(script_dir, "utils/8900main.tif")
     cmap_path = os.path.join(script_dir, "utils/fuel_cmap.csv")
     model = FireSpreadModel(tif_path)
 
     
-    plot_fire_grid(model, fuel_cmap_path=cmap_path)
-    for step in range(900):
+    #plot_fire_grid(model, fuel_cmap_path=cmap_path)
+    for step in range(500):
         model.step()
         #print(f"Step {step + 1} completed")
 
-        if step % 10 == 0:
-            print(f"Plotting fire grid at step {step}")
-            plot_fire_grid(model, fuel_cmap_path=cmap_path)
+        # if step % 100 == 0:
+        #     print(f"Plotting fire grid at step {step}")
+        #     plot_fire_grid(model, fuel_cmap_path=cmap_path)
 
         # Print a random cell agent and its properties
         # rand_row = np.random.randint(0, model.rows)
@@ -114,4 +115,4 @@ if __name__ == "__main__":
         #     pass
         # else:
         #     print(f"Sample Agent at ({test_row}, {test_col}) - Burning: {sample_agent.burning}, Burned: {sample_agent.burned}, Elevation: {sample_agent.elevation}, Slope: {sample_agent.slope}, Aspect: {sample_agent.aspect},Fuel: {sample_agent.fuel}, Canopy Cover: {sample_agent.canopy_cover}")
-    
+    export_fire_arrival_times(model, output_path="fire_arrival_times.csv")

@@ -22,10 +22,10 @@ class FireAgent(Agent):
         # Constants
         self.xi = 0.3
         self.epsilon = 0.9
-        self.Q_ig = 250.0
-        self.I_R = 100.0
-        self.rho_b = 0.02
-        self.C = 0.045
+        self.Q_ig = 250.0 # kJ/kg
+        self.I_R = 100.0 # kJ/m^2/s
+        self.rho_b = 0.02 # 0.02 kg/m^3
+        self.C = 0.045 
         self.B = 2.0
         self.E = 0.715
 
@@ -96,7 +96,7 @@ class FireAgent(Agent):
                             dx = abs(n.col - agent.col)
                             dy = abs(n.row - agent.row)
                             dist = np.hypot(dx, dy)
-                            dt = dist / R_eff if R_eff > 0 else float('inf')
+                            dt = (dist / R_eff) * 60 if R_eff > 0 else float('inf')
                             arrival_time = self.model.time + dt
                             n.arrival_time = min(n.arrival_time, arrival_time)
                     
