@@ -4,6 +4,11 @@ import numpy as np
 from mesa import Agent
 from model.cell_agent import CellAgent
 
+'''
+TODO: Include the actual fuel physical parameters from the standard FBFM data tables for each fuel type instead of generic constants.
+This will require mapping FCCS or fuel values to standard parameters like fuel load, density, heat content, etc.
+'''
+
 class FireAgent(Agent):
     def __init__(self, model, unique_id, fuel_load, fuel_density, heat_content,
                  wind_speed, slope_deg, moisture_content):
