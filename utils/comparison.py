@@ -6,9 +6,10 @@ FlamMap MTT Arrival Times - time unit is minutes
 '''
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-# abm_path = os.path.join(script_dir, "fire_arrival_times.csv")
-abm_path = os.path.join(script_dir, "resampled_fire_arrival_times.csv")
-flammap_path = os.path.join(script_dir, "flammap_arrival_times.csv")
+abm_path = os.path.join(script_dir, "fire_arrival_times.csv") # for original tif
+# abm_path = os.path.join(script_dir, "resampled_fire_arrival_times.csv") # for resampled tif
+flammap_path = os.path.join(script_dir, "flammap_arrival_times.csv") # for original flammap tif
+# flammap_path = os.path.join(script_dir, "flammap_resampled_arrival_times.csv") # for resampled flammap tif
 
 abm_data = pd.read_csv(abm_path, header=None).to_numpy()
 flammap_data = pd.read_csv(flammap_path, header=None).to_numpy()
@@ -24,8 +25,8 @@ print("FlamMap data shape:", flammap_data.shape)
 print("FlamMap center cell indices:", (r2, c2))
 print("FlamMap center cell arrival time:", flammap_data[r2, c2])
 
-neighbors_abm = abm_data[r1-1:r1+2, c1-1:c1+2]
-neighbors_flammap = flammap_data[r2-1:r2+2, c2-1:c2+2]
+neighbors_abm = abm_data[r1-2:r1+3, c1-2:c1+3]
+neighbors_flammap = flammap_data[r2-2:r2+3, c2-2:c2+3]
 
 print("ABM neighbor arrival times:\n", neighbors_abm)
 print("FlamMap neighbor arrival times:\n", neighbors_flammap)

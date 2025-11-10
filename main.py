@@ -119,3 +119,13 @@ if __name__ == "__main__":
             output_csv = "./utils/fire_arrival_times.csv"
         export_fire_arrival_times(model, output_path=output_csv)
     print("Simulation complete.")
+
+
+    '''
+    Questions for Burak:
+
+    1) Does Flammap have a North to South wind vector?
+    2) What to do if units are correct and the values aren't matching up?
+    3) Since leaving ASDL what are future steps for report/feedback/presentation?
+    4) Think I am good to explain differences in values at this point?
+    '''
