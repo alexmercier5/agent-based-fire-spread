@@ -1,8 +1,10 @@
 import rasterio
 import matplotlib.pyplot as plt
 from rasterio.enums import Resampling
+from rasterio.transform import Affine
 import numpy as np
 import os
+import math
 
 def read_tif(tif_path):
     print("Current working directory:", os.getcwd())
@@ -42,64 +44,95 @@ def read_tif(tif_path):
 import rasterio
 from rasterio.enums import Resampling
 
-def resample_tif(tif_path, out_path, target_pixel_size=100):
+def resample_tif(tif_path, out_path, target_pixel_size=100.0, snap_to_grid=True, resampling=Resampling.average):
     """
-    Resample all bands of a multi-band GeoTIFF to a new pixel size and save as a new file.
+    Resample all bands of a multi-band GeoTIFF to exactly `target_pixel_size` x `target_pixel_size`.
 
     Parameters:
-        tif_path (str): Path to input GeoTIFF.
-        out_path (str): Path to save the resampled GeoTIFF.
-        target_pixel_size (float): Desired pixel size in meters (default 100).
+        tif_path (str): input GeoTIFF path
+        out_path (str): output GeoTIFF path
+        target_pixel_size (float): desired pixel size in same linear units as CRS (meters)
+        snap_to_grid (bool): if True, snaps the left/top origin to nearest multiple of target_pixel_size
+        resampling: rasterio.enums.Resampling method for continuous data (use Resampling.nearest for categorical)
     """
-
     with rasterio.open(tif_path) as src:
-        scale_factor = target_pixel_size / src.res[0]  # assuming square pixels
+        # original bounds and CRS
+        left, bottom, right, top = src.bounds.left, src.bounds.bottom, src.bounds.right, src.bounds.top
+        crs = src.crs
+        orig_xres, orig_yres = src.res  # note yres is negative in transform but src.res returns positive tuple
 
-        new_width = int(src.width / scale_factor)
-        new_height = int(src.height / scale_factor)
+        # optionally snap origin to a grid multiple of target_pixel_size
+        if snap_to_grid:
+            # snap left to floor(left / target) * target
+            snap_left = math.floor(left / target_pixel_size) * target_pixel_size
+            # snap top to ceil(top / target) * target  (so top >= original top and aligns on grid)
+            snap_top = math.ceil(top / target_pixel_size) * target_pixel_size
+            # Keep right/bottom such that extent at least covers original
+            snap_right = snap_left + math.ceil((right - snap_left) / target_pixel_size) * target_pixel_size
+            snap_bottom = snap_top - math.ceil((snap_top - bottom) / target_pixel_size) * target_pixel_size
+        else:
+            snap_left, snap_top, snap_right, snap_bottom = left, top, right, bottom
 
-        # Read and resample all bands
-        data_resampled = []
+        # compute new width/height from snapped extent
+        new_width = int(round((snap_right - snap_left) / target_pixel_size))
+        new_height = int(round((snap_top - snap_bottom) / target_pixel_size))
+
+        if new_width <= 0 or new_height <= 0:
+            raise ValueError("Computed new_width/new_height <= 0. Check bounds and target_pixel_size")
+
+        print(f"Original pixel size: {orig_xres} x {orig_yres}")
+        print(f"Snapped extent: left={snap_left}, bottom={snap_bottom}, right={snap_right}, top={snap_top}")
+        print(f"New grid: {new_width} cols × {new_height} rows at {target_pixel_size} m")
+
+        # Prepare array to hold resampled bands
+        dtype = src.dtypes[0]
+        data_resampled = np.empty((src.count, new_height, new_width), dtype=dtype)
+
+        # compute new transform: top-left at (snap_left, snap_top)
+        transform = Affine.translation(snap_left, snap_top) * Affine.scale(target_pixel_size, -target_pixel_size)
+
+        # Read/resample each band
         for i in range(1, src.count + 1):
             band = src.read(
                 i,
                 out_shape=(new_height, new_width),
-                resampling=Resampling.average
+                resampling=resampling
             )
-            data_resampled.append(band)
+            data_resampled[i - 1] = band
 
-        # Stack bands back into a single array with shape (bands, rows, cols)
-        data_resampled = np.stack(data_resampled, axis=0)
-
-        # Update metadata for the new file
-        transform = src.transform * src.transform.scale(
-            (src.width / new_width),
-            (src.height / new_height)
-        )
-
+        # Build profile for output
         profile = src.profile.copy()
         profile.update({
-            'height': new_height,
-            'width': new_width,
-            'transform': transform,
-            'count': src.count
+            "height": new_height,
+            "width": new_width,
+            "transform": transform,
+            "crs": crs,
+            "count": src.count,
+            "driver": "GTiff"
         })
 
-        # Write all bands to new GeoTIFF
-        with rasterio.open(out_path, 'w', **profile) as dst:
-            for i in range(src.count):
-                dst.write(data_resampled[i], i + 1)
-        print(data_resampled[3])
-        print(f"Resampled GeoTIFF saved to {out_path}")
-        print("Resampled shape (bands, rows, cols):", data_resampled.shape)
+        # preserve nodata if present
+        if 'nodata' in src.profile and src.profile['nodata'] is not None:
+            profile['nodata'] = src.profile['nodata']
+
+        # write
+        with rasterio.open(out_path, "w", **profile) as dst:
+            dst.write(data_resampled)
+
+        print(f"✅ Resampled GeoTIFF saved to: {out_path}")
+        print("Shape (bands, rows, cols):", data_resampled.shape)
+        print("New pixel size (reported):", (target_pixel_size, target_pixel_size))
+        print("Output bounds:", dst.bounds)
 
 
 
 if __name__ == "__main__":
     # Path to your GeoTIFF file
-    tif_path = "./main.tif"
+    tif_path = "./8900main.tif"
     out_path = "./resampled_main.tif"
 
     read_tif(tif_path)
     # read_tif(out_path)
     resample_tif(tif_path, out_path)
+
+    read_tif(out_path)
