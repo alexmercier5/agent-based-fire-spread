@@ -1,157 +1,221 @@
+
 import math
-import mesa
 import numpy as np
 from mesa import Agent
 from model.cell_agent import CellAgent
 
-'''
-TODO: Include the actual fuel physical parameters from the standard FBFM data tables for each fuel type instead of generic constants.
-This will require mapping FCCS or fuel values to standard parameters like fuel load, density, heat content, etc.
-'''
+# Unit helpers (keep consistent with fuel_models.py)
+TON_ACRE_TO_KG_M2 = 0.224170
+FT_TO_M = 0.3048
+BTU_LB_TO_KJ_KG = 2.326
 
 class FireAgent(Agent):
     def __init__(self, model, unique_id, fuel_load, fuel_density, heat_content,
                  wind_speed, slope_deg, moisture_content):
         super().__init__(model)
+
+        # Wind input convention (FlamMap): 20-ft wind in MPH
+        self.wind_speed = float(wind_speed)   # mph at 20 ft
+        self.wind_direction = 0.0            # deg CW from North
+        self.waf_default = 0.25              # midflame wind adjustment factor (can be overridden per fuel)
+
+        # Legacy fields kept for compatibility; cell params supersede these during ROS calc
         self.fuel_load = fuel_load
         self.fuel_density = fuel_density
         self.heat_content = heat_content
-        self.wind_speed = wind_speed
         self.slope_deg = slope_deg
         self.moisture_content = moisture_content
 
-        self.burning = True  # FireAgent is “active” by default
-        self.rate_of_spread = 0.0
-        self.wind_direction = 90.0  # degrees from Wind origin
+        # Defaults/physics
+        self.xi = 0.30          # propagating flux ratio
+        self.epsilon = 0.90     # effective heating number (imperial form handled below)
+        self.Q_ig = 16000.0     # kJ/kg (only used if you switch to a metric denominator)
+        self.I_R_base = 1.0     # unused with current IR build; kept for tuning if needed
 
-        # Constants
-        self.xi = 0.3 # Propagating flux ratio 0.25-0.35 for surface fuels
-        self.epsilon = 0.9 # Effective heating number 0.8-1.0 for fine fuels
-        self.Q_ig = 2500.0 # kJ/kg Heat of preignition 2000-3000 depending on fuel
-        self.I_R = 3.0 # kJ/m^2/s Reaction intensity 10-20 for 1 kg/m^2 of fine fuel
-        self.rho_b = 30.0 # 30.0 kg/m^3 Bulk density: mass of fuel per unit volume of fuel bed
-        self.C = 0.045 # Wind factor constant
-        self.B = 2.0 # Wind factor exponent constant
-        self.E = 0.715 # Packing ratio exponent
+        self.burning = True
+        self.rate_of_spread = 0.0
+
+    def _fuel_waf(self, fuel_code):
+        # Simple per-group WAF heuristic that matches FlamMap behavior more closely
+        # GR: grass, GS: grass-shrub, SH: shrub, TU: timber-understory, TL: timber-litter, SB: slash-blowdown
+        if fuel_code is None:
+            return self.waf_default
+        try:
+            # Map numeric to group by the standard SB40 ranges
+            if 1 <= fuel_code <= 9:    # GR
+                return 0.35
+            if 10 <= fuel_code <= 13:  # GS
+                return 0.30
+            if 14 <= fuel_code <= 22:  # SH
+                return 0.25
+            if 23 <= fuel_code <= 27:  # TU
+                return 0.20
+            if 28 <= fuel_code <= 36:  # TL
+                return 0.18
+            if 37 <= fuel_code <= 40:  # SB
+                return 0.22
+            return 0.25
+        except Exception:
+            pass
+        return self.waf_default
 
     def compute_rate_of_spread(self, cell, neighbor):
         """
-        Compute the effective rate of spread (m/s) toward a neighbor cell
-        using available per-cell structure attributes (FCCS, crown height, etc.)
-        and model-level parameters (heat content, moisture, etc.).
+        Unit-consistent Rothermel ROS (imperial) with Albini wind factor.
+        Returns m/s. Inputs come from NEIGHBOR cell's properties.
         """
 
-        # --- Fuel and global properties ---
-        fuel_load = max(1e-6, neighbor.fuel)                # kg/m²
-        fuel_density = max(1e-6, self.fuel_density)          # kg/m³
-        heat_content = self.heat_content                      # kJ/kg (global constant)
-        moisture = min(max(self.moisture_content, 0.0), 1.0)  # fraction 0–1
-        rho_b = fuel_density
+        # --- Fuel parameters from NEIGHBOR ---
+        fuel_load_kg_m2 = float(getattr(neighbor, "fuel_load", 0.5))
+        bed_depth_m     = max(1e-3, float(getattr(neighbor, "fuel_bed_depth", 0.5)))
+        heat_kJkg       = float(getattr(neighbor, "heat_content", 18600.0))
+        M_f             = float(getattr(neighbor, "moisture_content", 0.10))
+        sigma_ft_inv    = float(getattr(neighbor, "sav_dead_1h_per_ft", 2000.0))  # ft^-1
+        slope_deg       = float(getattr(neighbor, "slope", 0.0))
 
-        # --- Terrain & geometry ---
-        dz = neighbor.elevation - cell.elevation
-        dx = neighbor.col - cell.col
-        dy = neighbor.row - cell.row
-        dist = np.hypot(dx, dy)
-        slope_angle = math.atan2(dz, dist)  # radians
+        # --- Packing (SI then beta, beta_op) ---
+        rho_b_SI = fuel_load_kg_m2 / bed_depth_m         # kg/m^3
+        rho_p_SI = 513.0
+        beta     = max(1e-6, rho_b_SI / rho_p_SI)
+        beta_op  = 3.348 * (sigma_ft_inv ** -0.8189)
 
-        # --- Packing ratio (Rothermel) ---
-        beta = rho_b / fuel_density
-        beta_op = 3.348 * (beta ** 0.8189)
+        # --- Albini wind coefficients (IMPERIAL) ---
+        B = 0.02526 * (sigma_ft_inv ** 0.54)
+        C = 7.47 * math.exp(-0.133 * (sigma_ft_inv ** 0.55))
+        E = 0.715 * math.exp(-3.59e-4 * sigma_ft_inv)
+
+        # --- Wind to mid-flame ft/min ---
+        fuel_code_val = getattr(neighbor, "fuel_code", 0)
+        if fuel_code_val is None:
+            fuel_code_val = 0
+        try:
+            waf = self._fuel_waf(int(fuel_code_val))
+        except (TypeError, ValueError):
+            waf = 0.4  # fallback wind adjustment factor
+        U20_mph = max(0.0, float(self.wind_speed))
+        U20_fts = U20_mph * 1.4666666667
+        U_mf_fts = U20_fts * waf
+        U_mf_ftmin = U_mf_fts * 60.0
 
         # --- Wind & slope factors ---
-        phi_w = self.C * (self.wind_speed ** self.B) * ((beta / beta_op) ** -self.E)
-        phi_s = 5.275 * (beta ** -0.3) * (math.tan(math.radians(neighbor.slope)) ** 2)
-        phi_elev = 5.275 * (beta ** -0.3) * (math.tan(slope_angle) ** 2)
-
-        # --- Crown structure effects ---
-        crown_density = max(0.01, neighbor.crown_bulk_density)  # kg/m³
-        crown_base = max(0.1, neighbor.crown_base_height)       # m
-        tree_height = max(1.0, neighbor.tree_height)            # m
-
-        # Empirical: dense + low crowns promote spread
-        crown_factor = (crown_density / 0.2) * (1.0 - crown_base / tree_height)
-        crown_factor = max(0.0, min(crown_factor, 3.0))  # limit multiplier to 0–3×
-
-        # --- FCCS fuel-type multiplier ---
-        # FCCS typically ranges 1–150; normalize to ~0.1–3×
-        FCCS_factor = max(0.1, min(neighbor.FCCS / 50.0, 3.0))
-
-        # --- Reaction intensity (scaled by fuel and heat content) ---
-        ref_fuel = 0.5       # kg/m²
-        ref_heat = 18000.0   # kJ/kg
-        k_m = 0.6            # moisture damping factor
-
-        I_R_base = self.I_R
-        I_R = I_R_base * (fuel_load / ref_fuel) * (heat_content / ref_heat) * (1 - k_m * moisture)
-        I_R *= crown_factor * FCCS_factor
-        I_R = max(0.0, I_R)
-
-        # --- Directional factor due to wind alignment ---
-        angle_to_neighbor = math.atan2(dy, dx)
-        wind_angle = math.radians(self.wind_direction)
-        direction_factor = max(0.1, math.cos(angle_to_neighbor - wind_angle))
-
-        # --- Effective rate of spread (m/s) ---
-        numerator = I_R * self.xi * (1 + phi_w + phi_s + phi_elev)
-        denominator = rho_b * self.epsilon * self.Q_ig
-        R_eff = direction_factor * numerator / denominator
-
-        # --- Clamp to realistic bounds ---
-        R_eff = max(1e-4, min(R_eff, 5.0))  # typical range for wildland fire
-        return R_eff
+        phi_w = C * (U_mf_ftmin ** B) * ((beta / beta_op) ** (-E))
+        phi_s = 5.275 * (beta ** -0.3) * (math.tan(math.radians(slope_deg)) ** 2)
+        phi_s = min(phi_s, 6.0)
 
 
+        # --- Directional alignment ---
+        heading_az = (math.degrees(math.atan2(neighbor.col - cell.col, -(neighbor.row - cell.row))) + 360.0) % 360.0
 
+        wind_from = float(getattr(self, "wind_direction", 0.0)) % 360.0  # e.g., 0° = from N
+        wind_toward = (wind_from + 180.0) % 360.0                       
+
+        delta = math.radians(((heading_az - wind_toward + 540.0) % 360.0) - 180.0)
+        dir_factor = max(0.2, math.cos(delta))   # or max(0.0, ...) if you want zero true backing
+
+        # Utilize only flaming fine fuels for load affect on IR
+        d1 = float(getattr(neighbor, "dead_1h_ton_ac", 0.0))
+        d10 = float(getattr(neighbor, "dead_10h_ton_ac", 0.0))
+        lh = float(getattr(neighbor, "live_herb_ton_ac", 0.0))
+
+        # Safely retrieve and normalize fuel_code to an int (fallback to 0)
+        fuel_code_attr = getattr(neighbor, "fuel_code", None)
+        try:
+            fuel_code = int(fuel_code_attr) if fuel_code_attr is not None else 0
+        except (TypeError, ValueError):
+            fuel_code = 0
+
+        flaming_frac = 0.20  # default
+
+        if 1 <= fuel_code <= 9:      # GR
+            flaming_frac = 0.35
+        elif 10 <= fuel_code <= 13:  # GS
+            flaming_frac = 0.25
+        elif 14 <= fuel_code <= 22:  # SH
+            flaming_frac = 0.20
+        elif 23 <= fuel_code <= 27:  # TU
+            flaming_frac = 0.15
+        elif 28 <= fuel_code <= 36:  # TL
+            flaming_frac = 0.08
+        elif 37 <= fuel_code <= 40:  # SB
+            flaming_frac = 0.10
+
+        w_lb_ft2 = (fuel_load_kg_m2 * 0.204816143) * flaming_frac
+        # --- Reaction intensity (IR) in Btu/ft^2/min ---
+        # Convert loads/heat to imperial
+        kg_m2_to_lb_ft2 = 0.204816143
+        kJkg_to_Btulb   = 0.429922614
+        h_Btu_lb = heat_kJkg * kJkg_to_Btulb
+
+        # Simple moisture damping (cap [0,1])
+        eta_M = max(0.0, min(1.0, 1.0 - 2.59*M_f + 5.11*(M_f**2) - 3.52*(M_f**3)))
+
+        # Available flaming fraction ~1% of total load (empirical)
+        flaming_frac = 0.01
+        HA_Btu_ft2 = w_lb_ft2 * h_Btu_lb * eta_M * flaming_frac
+        IR_Btu_ft2_min = (HA_Btu_ft2 * sigma_ft_inv) / 384.0  # t_r = 384/sigma (min)
+
+
+        phi_w_raw = C * (U_mf_ftmin ** B) * ((beta / beta_op) ** (-E))
+        phi_s_raw = 5.275 * (beta ** -0.3) * (math.tan(math.radians(slope_deg)) ** 2)
+
+#         print(
+#         f"[RAW] rc=({neighbor.row},{neighbor.col}) "
+#         f"fuel={getattr(neighbor,'fuel_code',None)} "
+#         f"slope={slope_deg:.1f}° "
+#         f"U_mf={U_mf_ftmin:.1f} ft/min B={B:.3f} C={C:.3f} E={E:.3f} "
+#         f"sigma={sigma_ft_inv:.0f} beta={beta:.5f} beta_op={beta_op:.5f} "
+#         f"phi_w_raw={phi_w_raw:.2f} phi_s_raw={phi_s_raw:.2f} "
+#         f"IR={IR_Btu_ft2_min:.2f}"
+# )
+
+        # --- Heat sink denominator (imperial) ---
+        rho_b_lb_ft3 = rho_b_SI * 0.06242796
+        epsilon      = math.exp(-138.0 / sigma_ft_inv)
+        Q_ig_Btu_lb  = 250.0 + 1116.0 * M_f
+
+        # --- ROS (ft/min) then m/s ---
+        R_ft_min = (IR_Btu_ft2_min * (1.0 + phi_w + phi_s)) / max(rho_b_lb_ft3 * epsilon * Q_ig_Btu_lb, 1e-12)
+        R_ft_min *= dir_factor
+        R_m_s = (R_ft_min / 60.0) * 0.3048
+
+        # Optional numeric guard
+        R_m_s = min(R_m_s, 0.02)
+        est_min = 30.0 / max(R_m_s, 1e-6) / 60.0
+        
+        # print(f"ROS={R_m_s:.4f} m/s  (~{est_min:.1f} min/30m)  phi_w={phi_w:.2f} phi_s={phi_s:.2f} IR={IR_Btu_ft2_min:.2f}")
+        return R_m_s
 
     def step(self):
         """
         Event-driven fire spread: ignite the next cell based on earliest arrival time.
+        Adds a simple residence-time term so arrivals align better with FlamMap.
         """
-        cell_size = self.model.cell_size  # in meters
+        cell_size = self.model.cell_size  # meters
 
-        # Collect all burning cells
-        burning_cells = [a for a in self.model.agents 
-                        if isinstance(a, CellAgent) and a.burning]
-
-        # Track candidate neighbor cells to ignite
+        burning_cells = [a for a in self.model.agents if isinstance(a, CellAgent) and a.burning]
         candidate_cells = []
-
         for cell in burning_cells:
-            # Get neighbors
-            neighbors = self.model.grid.get_neighbors(
-                (cell.col, cell.row), moore=True, include_center=False
-            )
+            neighbors = self.model.grid.get_neighbors((cell.col, cell.row), moore=True, include_center=False)
             for n in neighbors:
-                if (isinstance(n, CellAgent) and 
-                    not n.burning and 
-                    not n.burned and 
-                    n.fuel > 0):
-                    # Compute rate of spread
-                    R_eff = self.compute_rate_of_spread(cell, n)
+                if n.fuel_load <= 0:
+                    continue
+                if (isinstance(n, CellAgent) and not n.burning and not n.burned and n.fuel_load > 0):
+                    R_eff = self.compute_rate_of_spread(cell, n)  # m/s
                     dx = n.col - cell.col
                     dy = n.row - cell.row
-                    dist = np.hypot(dx, dy) * cell_size  # meters
-                    dt_sec = dist / max(R_eff, 1e-6)      # seconds to ignite neighbor
+                    dist = math.hypot(dx, dy) * cell_size  # meters
 
-                    # Apply boost for first-neighbor ignition if needed
-                    if getattr(cell, "is_ignition", False):
-                        dt_sec *= 0.5  # example: fire spreads faster to immediate neighbors
+                    travel = dist / max(R_eff, 1e-6)  # seconds
+                    # Simple residence/burn duration term (seconds)
+                    burn_duration = max(0.0, float(getattr(cell, "fuel_bed_depth", 0.5))) / max(R_eff, 1e-6)
 
-                    arrival_time = self.model.time + dt_sec
-                    # Keep the earliest arrival time if multiple neighbors try to ignite the same cell
+                    dt_sec = travel + burn_duration
+                    arrival_time = (self.model.time + dt_sec) / 60
                     n.arrival_time = min(n.arrival_time, arrival_time)
-
                     candidate_cells.append((arrival_time, n))
 
         if not candidate_cells:
-            # No more cells to ignite; fire is done
             return
-
-        # Find the next cell to ignite (earliest arrival)
         next_arrival_time, next_cell = min(candidate_cells, key=lambda x: x[0])
-
-        # Advance model time to next event
         self.model.time = next_arrival_time
         next_cell.burning = True
-

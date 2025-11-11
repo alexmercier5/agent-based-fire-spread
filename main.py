@@ -96,14 +96,15 @@ def plot_fire_grid(model, fuel_cmap_path="fuel_cmap.csv"):
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    tif_path = os.path.join(script_dir, "utils/resampled_main.tif")
+    tif_path = os.path.join(script_dir, "utils/8900main.tif")
+    # tif_path = os.path.join(script_dir, "utils/resampled_main.tif")
     cmap_path = os.path.join(script_dir, "utils/fuel_cmap.csv")
     model = FireSpreadModel(tif_path)
     saveMTTS = True
 
     
     #plot_fire_grid(model, fuel_cmap_path=cmap_path)
-    for step in range(100):
+    for step in range(50):
         model.step()
         #print(f"Step {step + 1} completed")
 

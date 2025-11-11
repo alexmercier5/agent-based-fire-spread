@@ -16,6 +16,7 @@ class FireSpreadModel(Model):
         # Read raster bands
         with rasterio.open(tif_path) as src:
             bands = [src.read(i).astype(float) for i in range(1, src.count + 1)]
+            self.cell_size = src.res[0]  # assuming square cells, in METERS
 
         elevation    = bands[0]
         slope        = bands[1]
@@ -28,10 +29,11 @@ class FireSpreadModel(Model):
         FCCS = bands[8]
         self.rows, self.cols = fuel.shape
 
+        # Clarify slope units for downstream logic (degrees here)
+        self.slope_is_percent = False
+
         # Create grid
         self.grid = MultiGrid(self.cols, self.rows, torus=False)
-        self.cell_size = src.res[0]  # assuming square cells, in meters
-        #print(f"Cell size: {self.cell_size} meters")
 
         # Create CellAgents
         self.cell_agents = []
@@ -43,9 +45,9 @@ class FireSpreadModel(Model):
                     agent_id,
                     row, col,
                     elevation=float(elevation[row, col]),
-                    slope=float(slope[row, col]),
+                    slope=float(slope[row, col]),         # DEGREES
                     aspect=float(aspect[row, col]),
-                    fuel=float(fuel[row, col]),
+                    fuel=float(fuel[row, col]),           # FBFM40 integer code
                     canopy_cover=float(canopy_cover[row, col]),
                     tree_height=float(tree_height[row, col]),
                     crown_base_height=float(crown_base_height[row, col]),
@@ -56,17 +58,19 @@ class FireSpreadModel(Model):
                 self.cell_agents.append(agent)
                 self.grid.place_agent(agent, (col, row))
 
-        # Create FireAgent
         self.fire_agent = FireAgent(
             model=self,
             unique_id=self._agent_id_counter,
             fuel_load=0.5,
             fuel_density=32.0,
-            heat_content=18000.0,
-            wind_speed=1.0,
+            heat_content=18600.0,
+            wind_speed=10.0,    # 20-ft wind in mph - default in flammap
             slope_deg=0.0,
-            moisture_content=0.08
+            moisture_content=0.10
         )
+        self.fire_agent.wind_is_mps = False     # we are passing mph
+        self.fire_agent.waf = 0.40              # adjust per cover; try 0.25 in timber
+        self.fire_agent.wind_direction = 0.0    # 0 = North (FlamMap convention)
         self._agent_id_counter += 1
 
         # Ignite center cell
@@ -92,12 +96,7 @@ class FireSpreadModel(Model):
         )
 
     def step(self):
-        #self.time += 1
         self.datacollector.collect(self)
-
-        # Step FireAgent
         self.fire_agent.step()
-
-        # Step all CellAgents
         for agent in self.cell_agents:
             agent.step()

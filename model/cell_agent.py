@@ -1,17 +1,18 @@
-import contextlib
 from mesa import Agent
 import numpy as np
+from utils.fuel_models import sb40_by_landfire
 
 class CellAgent(Agent):
-    def __init__(self, 
-                 model, 
-                 unique_id, 
-                 row, 
-                 col, 
-                 elevation=0.0, 
-                 slope=0.0, 
-                 aspect=0.0, 
-                 fuel=0.0, 
+    """
+    Represents a single landscape cell for fire spread.
+    Each cell stores terrain, canopy, and fuel parameters (Scott & Burgan 40).
+    """
+
+    def __init__(self, model, unique_id, row, col,
+                 elevation=0.0,
+                 slope=0.0,
+                 aspect=0.0,
+                 fuel=0.0,               # Layer 4 = LANDFIRE FBFM40 integer code
                  canopy_cover=0.0,
                  tree_height=0.0,
                  crown_base_height=0.0,
@@ -21,29 +22,57 @@ class CellAgent(Agent):
         self.unique_id = unique_id
         self.row = row
         self.col = col
-        self.elevation = elevation                      # Layer 1
-        self.slope = slope                              # Layer 2
-        self.aspect = aspect                            # Layer 3
-        self.fuel = fuel                                # Layer 4
-        self.canopy_cover = canopy_cover                # Layer 5
-        self.tree_height = tree_height                  # Layer 6
-        self.crown_base_height = crown_base_height      # Layer 7
-        self.crown_bulk_density = crown_bulk_density    # Layer 8
-        self.FCCS = FCCS                                # Layer 9
 
+        # --- Base landscape attributes ---
+        self.elevation = float(elevation)
+        self.slope = float(slope)
+        self.aspect = float(aspect)
+        self.fuel = float(fuel)
+        self.canopy_cover = float(canopy_cover)
+        self.tree_height = float(tree_height)
+        self.crown_base_height = float(crown_base_height)
+        self.crown_bulk_density = float(crown_bulk_density)
+        self.FCCS = float(FCCS)
+
+        # --- Fuel mapping (Scott & Burgan 40) ---
+        self.fuel_code = str(int(self.fuel)) if not np.isnan(self.fuel) else None
+        if self.fuel_code in sb40_by_landfire:
+            f = sb40_by_landfire[self.fuel_code]
+
+            # Primary SI fields
+            self.fuel_load = float(f["fuel_load_kg_m2"])             # kg/m²
+            self.fuel_bed_depth = float(f["fuel_bed_depth_m"])       # m
+            self.heat_content = float(f["heat_content_kJ_kg"])       # kJ/kg
+            self.moisture_content = f["extinction_moisture_dead_fraction"] * 0.4  # assume 40% of dead EMC
+            self.sav_dead_1h_per_ft = float(f["sav_1h_ft_inv"])      # ft⁻¹
+
+            # Derived bulk density (kg/m³)
+            self.fuel_density = self.fuel_load / max(self.fuel_bed_depth, 1e-3)
+
+        else:
+            # --- Conservative fallback ---
+            self.fuel_load = 0.5                 # kg/m²
+            self.fuel_bed_depth = 0.5            # m
+            self.heat_content = 18600.0          # kJ/kg
+            self.moisture_content = 0.10         # fraction
+            self.sav_dead_1h_per_ft = 2000.0     # ft⁻¹
+            self.fuel_density = 30.0             # kg/m³
+            self.fuel_code = None
+
+        # --- Fire state variables ---
         self.burning = False
         self.burned = False
         self.arrival_time = np.inf
         self.burn_time = None
         self.rate_of_spread = 0.0
+        self.curing_fraction = 0.4 # live herb curing fraction - 0.3-0.6
         self.is_ignition = False
-        '''
-        https://owfflammaphelp62.firenet.gov/FileTypes/PU_Landscape_File.htm
-        https://owfflammaphelp62.firenet.gov/AnalysisCMDs/Get_Landscape.htm
-        '''
+        self.is_burnable = self.fuel_code in sb40_by_landfire
 
     def step(self):
-        # Just update burned state if currently burning
+        """
+        Update burning/burned state each simulation tick.
+        """
         if self.burning and not self.burned:
             if self.burn_time is None:
                 self.burn_time = self.model.time
