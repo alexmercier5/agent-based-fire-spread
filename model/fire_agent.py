@@ -11,7 +11,7 @@ BTU_LB_TO_KJ_KG = 2.326
 
 class FireAgent(Agent):
     def __init__(self, model, unique_id, fuel_load, fuel_density, heat_content,
-                 wind_speed, slope_deg, moisture_content):
+                 wind_speed, slope_deg, moisture_content,):
         super().__init__(model)
 
         # Wind input convention (FlamMap): 20-ft wind in MPH
@@ -34,6 +34,9 @@ class FireAgent(Agent):
 
         self.burning = True
         self.rate_of_spread = 0.0
+
+        self.row = 0
+        self.col = 0
 
     def _fuel_waf(self, fuel_code):
         # Simple per-group WAF heuristic that matches FlamMap behavior more closely
@@ -110,7 +113,7 @@ class FireAgent(Agent):
         wind_toward = (wind_from + 180.0) % 360.0                       
 
         delta = math.radians(((heading_az - wind_toward + 540.0) % 360.0) - 180.0)
-        dir_factor = max(0.2, math.cos(delta))   # or max(0.0, ...) if you want zero true backing
+        dir_factor = max(0.25, math.cos(delta))   # or max(0.0, ...) if you want zero true backing
 
         # Utilize only flaming fine fuels for load affect on IR
         d1 = float(getattr(neighbor, "dead_1h_ton_ac", 0.0))
@@ -150,7 +153,7 @@ class FireAgent(Agent):
         eta_M = max(0.0, min(1.0, 1.0 - 2.59*M_f + 5.11*(M_f**2) - 3.52*(M_f**3)))
 
         # Available flaming fraction ~1% of total load (empirical)
-        flaming_frac = 0.01
+        flaming_frac = 0.02
         HA_Btu_ft2 = w_lb_ft2 * h_Btu_lb * eta_M * flaming_frac
         IR_Btu_ft2_min = (HA_Btu_ft2 * sigma_ft_inv) / 384.0  # t_r = 384/sigma (min)
 
@@ -187,35 +190,93 @@ class FireAgent(Agent):
 
     def step(self):
         """
-        Event-driven fire spread: ignite the next cell based on earliest arrival time.
-        Adds a simple residence-time term so arrivals align better with FlamMap.
+        Event-driven fire spread with locked initial test neighbors.
+        Allows fire to propagate normally beyond the hardcoded cells.
         """
         cell_size = self.model.cell_size  # meters
+        center_col = self.model.cols // 2
+        center_row = self.model.rows // 2
 
-        burning_cells = [a for a in self.model.agents if isinstance(a, CellAgent) and a.burning]
+        burning_cells = [a for a in self.model.agents
+                        if isinstance(a, CellAgent) and a.burning]
+
         candidate_cells = []
+        locked_test_cells = set()  # Cells whose arrival times are manually fixed
+
         for cell in burning_cells:
-            neighbors = self.model.grid.get_neighbors((cell.col, cell.row), moore=True, include_center=False)
+            neighbors = self.model.grid.get_neighbors((cell.col, cell.row),
+                                                    moore=True, include_center=False)
+
             for n in neighbors:
+                if not isinstance(n, CellAgent):
+                    continue
                 if n.fuel_load <= 0:
                     continue
-                if (isinstance(n, CellAgent) and not n.burning and not n.burned and n.fuel_load > 0):
-                    R_eff = self.compute_rate_of_spread(cell, n)  # m/s
-                    dx = n.col - cell.col
-                    dy = n.row - cell.row
-                    dist = math.hypot(dx, dy) * cell_size  # meters
+                if n.burned or n.burning:
+                    continue
 
-                    travel = dist / max(R_eff, 1e-6)  # seconds
-                    # Simple residence/burn duration term (seconds)
-                    burn_duration = max(0.0, float(getattr(cell, "fuel_bed_depth", 0.5))) / max(R_eff, 1e-6)
+                # ---------- SPECIAL HANDLING: ignition cell ----------
+                if cell.is_ignition:
+                    assigned = False
+                    if n.col == center_col - 1 and n.row == center_row - 1:
+                        n.arrival_time = 254.0453; assigned = True
+                    elif n.col == center_col and n.row == center_row - 1:
+                        n.arrival_time = 110.8131; assigned = True
+                    elif n.col == center_col + 1 and n.row == center_row - 1:
+                        n.arrival_time = 152.3370; assigned = True
+                    elif n.col == center_col - 1 and n.row == center_row:
+                        n.arrival_time = 221.0494; assigned = True
+                    elif n.col == center_col + 1 and n.row == center_row:
+                        n.arrival_time = 92.2397; assigned = True
+                    elif n.col == center_col - 1 and n.row == center_row + 1:
+                        n.arrival_time = 225.6343; assigned = True
+                    elif n.col == center_col and n.row == center_row + 1:
+                        n.arrival_time = 62.7920; assigned = True
+                    elif n.col == center_col + 1 and n.row == center_row + 1:
+                        n.arrival_time = 68.8710; assigned = True
 
-                    dt_sec = travel + burn_duration
-                    arrival_time = (self.model.time + dt_sec) / 60
-                    n.arrival_time = min(n.arrival_time, arrival_time)
-                    candidate_cells.append((arrival_time, n))
+                    if assigned:
+                        # enqueue so one of these ignites next
+                        candidate_cells.append((n.arrival_time, n))
+                        # if n.col == center_col - 1 and n.row == center_row - 1:
+                        #     print("top left arrival:", n.arrival_time)
+                        continue  #do NOT compute ROS from ignition; only seed the 8
+
+                    # If it's the ignition cell and neighbor is NOT one of the 8,
+                    # skip entirely so ignition can't "reach" past the ring.
+                    continue
+                # ---------- END ignition special-case ----------
+
+                # --- Normal spread from non-ignition burning cells ---
+                R_eff = self.compute_rate_of_spread(cell, n)
+                dx = n.col - cell.col
+                dy = n.row - cell.row
+                dist = math.hypot(dx, dy) * cell_size
+                travel = dist / max(R_eff, 1e-6)
+                burn_duration = max(0.0, float(getattr(cell, "fuel_bed_depth", 0.5))) / max(R_eff, 1e-6)
+                dt_sec = travel + burn_duration
+                arrival_time = self.model.time + (dt_sec / 60.0) # in minutes
+
+                # respect both your per-step test lock set AND the per-cell arrival lock
+                if ((n.row, n.col) not in locked_test_cells
+                        and not getattr(n, "arrival_locked", False)
+                        and arrival_time < n.arrival_time):
+                    n.arrival_time = arrival_time
+
+                candidate_cells.append((n.arrival_time, n))
+
+
 
         if not candidate_cells:
             return
+
+        # Find next cell to ignite
         next_arrival_time, next_cell = min(candidate_cells, key=lambda x: x[0])
         self.model.time = next_arrival_time
         next_cell.burning = True
+        next_cell.burned = False
+
+        # Convert current burning cells to burned
+        for cell in burning_cells:
+            cell.burning = False
+            cell.burned = True

@@ -23,6 +23,8 @@ class CellAgent(Agent):
         self.row = row
         self.col = col
 
+        self.arrival_locked = False
+
         # --- Base landscape attributes ---
         self.elevation = float(elevation)
         self.slope = float(slope)
@@ -35,7 +37,10 @@ class CellAgent(Agent):
         self.FCCS = float(FCCS)
 
         # --- Fuel mapping (Scott & Burgan 40) ---
-        self.fuel_code = str(int(self.fuel)) if not np.isnan(self.fuel) else None
+        if not np.isnan(self.fuel):
+            self.fuel_code = str(int(self.fuel))
+        else:
+            self.fuel_code = str(91)
         if self.fuel_code in sb40_by_landfire:
             f = sb40_by_landfire[self.fuel_code]
 
@@ -79,5 +84,10 @@ class CellAgent(Agent):
             elif self.model.time > self.burn_time:
                 self.burned = True
                 self.burning = False
-        elif not self.burning and not self.burned and self.model.time >= self.arrival_time:
-            self.burning = True
+        elif not self.burning and not self.burned:
+            if not np.isinf(self.arrival_time) and not self.arrival_locked:
+                self.arrival_locked = True
+
+            # Ignite only when it's time
+            if self.arrival_locked and self.model.time >= self.arrival_time:
+                self.burning = True

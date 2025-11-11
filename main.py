@@ -104,11 +104,12 @@ if __name__ == "__main__":
 
     
     #plot_fire_grid(model, fuel_cmap_path=cmap_path)
-    for step in range(50):
+    for step in range(1500):
         model.step()
         #print(f"Step {step + 1} completed")
 
-        # if step % 100 == 0:
+        if step % 100 == 0:
+            print(f"Step {step + 1} complete.")
         #     print(f"Plotting fire grid at step {step}")
         #     plot_fire_grid(model, fuel_cmap_path=cmap_path)
 

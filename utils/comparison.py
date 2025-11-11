@@ -37,8 +37,8 @@ print("FlamMap data shape:", flammap_data.shape)
 print("FlamMap center cell indices:", (r2, c2))
 print("FlamMap center cell arrival time (min):", flammap_data[r2, c2])
 
-neighbors_abm = abm_data[r1-4:r1+5, c1-4:c1+5]
-neighbors_flammap = flammap_data[r2-4:r2+5, c2-4:c2+5]
+neighbors_abm = abm_data[r1-3:r1+5, c1-3:c1+5]
+neighbors_flammap = flammap_data[r2-3:r2+5, c2-3:c2+5]
 
 print("\nABM neighbor arrival times (minutes, rounded to 4 decimals):\n", neighbors_abm)
 print("\nFlamMap neighbor arrival times (minutes, rounded to 4 decimals):\n", neighbors_flammap)
