@@ -29,6 +29,8 @@ class FireSpreadModel(Model):
         FCCS = bands[8]
         self.rows, self.cols = fuel.shape
 
+
+        self.burned_count = 0
         # Clarify slope units for downstream logic (degrees here)
         self.slope_is_percent = False
 
@@ -70,7 +72,7 @@ class FireSpreadModel(Model):
         )
         self.fire_agent.wind_is_mps = False     # we are passing mph
         self.fire_agent.waf = 0.40              # adjust per cover; try 0.25 in timber
-        self.fire_agent.wind_direction = 0.0    # 0 = North (FlamMap convention)
+        self.fire_agent.wind_direction = 0.0    # 0 = North to South wind
         self._agent_id_counter += 1
 
         # Ignite center cell
@@ -85,9 +87,7 @@ class FireSpreadModel(Model):
         # Data collector
         self.datacollector = DataCollector(
             model_reporters={
-                "BurnedCells": lambda m: sum(
-                    1 for a in m.cell_agents if a.burned
-                )
+                "BurnedCells": lambda m: m.burned_count
             },
             agent_reporters={
                 "Burning": lambda a: getattr(a, "burning", False),
@@ -96,7 +96,22 @@ class FireSpreadModel(Model):
         )
 
     def step(self):
-        self.datacollector.collect(self)
+        # Initialize FireAgent arrays if not already done
+        if not getattr(self.fire_agent, "_initialized", False):
+            self.fire_agent._ensure_arrays()
+
+        # Collect data every 50 steps (optional throttle)
+        if (getattr(self, "_tick", 0) % 50) == 0:
+            self.datacollector.collect(self)
+        self._tick = getattr(self, "_tick", 0) + 1
+
+        # 🔥 Run one fire step first
         self.fire_agent.step()
-        for agent in self.cell_agents:
-            agent.step()
+
+        frontier = getattr(self.fire_agent, "_frontier", None)
+        if frontier is not None and len(frontier) == 0:
+            print(f"🔥 Fire extinguished at {self.fire_agent.model.time:.2f} min, "
+                f"after {self._tick} steps.")
+            return False
+
+        return True

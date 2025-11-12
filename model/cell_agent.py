@@ -41,6 +41,14 @@ class CellAgent(Agent):
             self.fuel_code = str(int(self.fuel))
         else:
             self.fuel_code = str(91)
+        
+        # For non-burnable fuel types, use GR2 (moderate grassland) as default
+        # This allows fire to spread over water, roads, urban areas, etc.
+        if self.fuel_code not in sb40_by_landfire:
+            # Replace with GR2 (LANDFIRE code 92)
+            self.fuel_code = "92"
+            self.original_fuel_code = str(int(self.fuel)) if not np.isnan(self.fuel) else "0"
+        
         if self.fuel_code in sb40_by_landfire:
             f = sb40_by_landfire[self.fuel_code]
 
@@ -48,21 +56,25 @@ class CellAgent(Agent):
             self.fuel_load = float(f["fuel_load_kg_m2"])             # kg/m²
             self.fuel_bed_depth = float(f["fuel_bed_depth_m"])       # m
             self.heat_content = float(f["heat_content_kJ_kg"])       # kJ/kg
-            self.moisture_content = f["extinction_moisture_dead_fraction"] * 0.4  # assume 40% of dead EMC
+            self.moisture_content = f["extinction_moisture_dead_fraction"] # percent (10% = 0.1)
             self.sav_dead_1h_per_ft = float(f["sav_1h_ft_inv"])      # ft⁻¹
+            self.dead_1h = float(f["dead_1h_ton_ac"])       # ton/acre
+            self.live_herb = float(f["total_live_ton_ac"])  # ton/acre
 
             # Derived bulk density (kg/m³)
             self.fuel_density = self.fuel_load / max(self.fuel_bed_depth, 1e-3)
 
         else:
-            # --- Conservative fallback ---
+            # This should never happen now, but keep as safety fallback
             self.fuel_load = 0.5                 # kg/m²
             self.fuel_bed_depth = 0.5            # m
             self.heat_content = 18600.0          # kJ/kg
             self.moisture_content = 0.10         # fraction
             self.sav_dead_1h_per_ft = 2000.0     # ft⁻¹
             self.fuel_density = 30.0             # kg/m³
-            self.fuel_code = None
+            self.fuel_code = "92"  # GR2
+            self.dead_1h = 0.1                   # ton/acre (GR2 value)
+            self.live_herb = 1.0                 # ton/acre (GR2 value)
 
         # --- Fire state variables ---
         self.burning = False
@@ -72,7 +84,8 @@ class CellAgent(Agent):
         self.rate_of_spread = 0.0
         self.curing_fraction = 0.4 # live herb curing fraction - 0.3-0.6
         self.is_ignition = False
-        self.is_burnable = self.fuel_code in sb40_by_landfire
+        # All cells are now burnable since we replace non-burnable fuels with GR2
+        self.is_burnable = True
 
     def step(self):
         """
