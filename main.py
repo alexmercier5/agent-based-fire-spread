@@ -61,7 +61,7 @@ if __name__ == "__main__":
     print("Running until fire extinguishes naturally...")
     
     step = 0
-    max_steps = 20000
+    max_steps = 5000
     
     while step < max_steps:
         cont = model.step()
@@ -78,7 +78,7 @@ if __name__ == "__main__":
         step += 1
     
     if step >= max_steps:
-        print(f"\n⚠️  Reached maximum step limit ({max_steps})")
+        print(f"\nReached maximum step limit ({max_steps})")
     
     final_burned = model.burned_count
     final_burning = int(np.sum(model.fire_agent.burning_mask)) if hasattr(model, 'fire_agent') else 0

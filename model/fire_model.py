@@ -76,8 +76,10 @@ class FireSpreadModel(Model):
         self._agent_id_counter += 1
 
         # Ignite center cell
-        center_col = self.cols // 2
+        center_col = self.cols // 2 # CAN VARY IGNITION POINT BY MODIFYING VALUE FOR CENTER (col, row)
         center_row = self.rows // 2
+        # center_col = 20
+        # center_row = 20
         center_cell = self.grid.get_cell_list_contents([(center_col, center_row)])[0]
         center_cell.burning = True
         center_cell.arrival_time = 0.0

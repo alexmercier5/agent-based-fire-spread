@@ -601,7 +601,7 @@ class FireAgent(Agent):
                             self._forced_ros_count = 0
                         self._forced_ros_count += 1
                         if self._forced_ros_count <= 5:
-                            print(f"⚠️  Cell ({rr},{cc}): ROS=0 but fuel_load={self.fuel_loads[rr,cc]:.4f}, "
+                            print(f"Cell ({rr},{cc}): ROS=0 but fuel_load={self.fuel_loads[rr,cc]:.4f}, "
                                   f"forcing to 0.001 m/s (case #{self._forced_ros_count})")
                     else:
                         continue
@@ -616,11 +616,41 @@ class FireAgent(Agent):
                     heapq.heappush(self._frontier, (cand_t, int(rr), int(cc)))
 
         # Advance time and cool off cells whose burn_end <= t0
-        done_mask = (self._burn_end <= self.model.time)
+        # BUT only if ALL 8 neighbors are either burning or burned
+        done_mask = (self._burn_end <= self.model.time) & self.burning_mask
+        
         if np.any(done_mask):
-            self.burned_mask[done_mask] = True
-            self.burning_mask[done_mask] = False
-            self.model.burned_count = int(np.sum(done_mask))
+            # Check each burning cell to see if all neighbors are burning/burned
+            rows, cols = self.arrival_times.shape
+            ready_to_burn = []
+            
+            for r in range(rows):
+                for c in range(cols):
+                    if not done_mask[r, c]:
+                        continue
+                    
+                    # Check all 8 neighbors
+                    all_neighbors_involved = True
+                    for dr, dc in self._OFFSETS:
+                        rr, cc = r + dr, c + dc
+                        if 0 <= rr < rows and 0 <= cc < cols:
+                            # Check if this neighbor is burnable (has fuel)
+                            if self.fuel_loads[rr, cc] > 0:
+                                # If burnable, it must be burning or burned
+                                if not (self.burning_mask[rr, cc] or self.burned_mask[rr, cc]):
+                                    all_neighbors_involved = False
+                                    break
+                            # If not burnable (no fuel), we don't require it to be burning
+                    
+                    if all_neighbors_involved:
+                        ready_to_burn.append((r, c))
+            
+            # Mark cells as burned only if all neighbors are involved
+            for r, c in ready_to_burn:
+                self.burned_mask[r, c] = True
+                self.burning_mask[r, c] = False
+            
+            self.model.burned_count = int(np.sum(self.burned_mask))
 
         # Print progress throttled
         if not hasattr(self, '_last_print_time'):
