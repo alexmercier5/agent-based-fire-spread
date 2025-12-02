@@ -29,6 +29,9 @@ class FireSpreadModel(Model):
         FCCS = bands[8]
         self.rows, self.cols = fuel.shape
 
+        
+        slope = np.degrees(np.arctan(slope / 100.0))
+
 
         self.burned_count = 0
         # Clarify slope units for downstream logic (degrees here)
@@ -78,8 +81,16 @@ class FireSpreadModel(Model):
         # Ignite center cell
         center_col = self.cols // 2 # CAN VARY IGNITION POINT BY MODIFYING VALUE FOR CENTER (col, row)
         center_row = self.rows // 2
-        # center_col = 20
-        # center_row = 20
+        multipleIgnition = False
+        if multipleIgnition:
+            ig_2_col = 20
+            ig_2_row = 20
+            ig_2_cell = self.grid.get_cell_list_contents([(ig_2_col, ig_2_row)])[0]
+            ig_2_cell.burning = True
+            ig_2_cell.arrival_time = 0.0
+            ig_2_cell.is_ignition = True
+            self.grid.place_agent(self.fire_agent, (ig_2_col, ig_2_row))
+
         center_cell = self.grid.get_cell_list_contents([(center_col, center_row)])[0]
         center_cell.burning = True
         center_cell.arrival_time = 0.0

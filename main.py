@@ -61,7 +61,7 @@ if __name__ == "__main__":
     print("Running until fire extinguishes naturally...")
     
     step = 0
-    max_steps = 5000
+    max_steps = 10000
     
     while step < max_steps:
         cont = model.step()

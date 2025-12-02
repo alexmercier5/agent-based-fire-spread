@@ -81,6 +81,10 @@ if NUMBA_AVAILABLE:
         # --- Wind & slope factors ---
         ratio = max(beta / beta_op, 1e-9)
         phi_w = C * (U_mf_ftmin ** B) * (ratio ** (-E))
+        
+        # Cap wind factor to prevent unrealistic values (grassland max ~5-6)
+        if phi_w > 5.0:
+            phi_w = 5.0
         phi_s = 5.275 * (beta ** -0.3) * (math.tan(math.radians(slope_deg)) ** 2)
         # print("Phi_w and Phi_s", phi_w, phi_s)
         if phi_s > 6.0:
@@ -125,12 +129,12 @@ if NUMBA_AVAILABLE:
         R_m_s = (R_ft_min / 60.0) * 0.3048
         R_m_s *= dir_factor
         
-        # Apply minimum FIRST - increased to 0.01 to prevent very late arrivals
-        if R_m_s > 0 and R_m_s < 0.01:
-            R_m_s = 0.01  # 10x faster than before - prevents holes
-        # Then apply maximum cap
-        if R_m_s > 1:
-            R_m_s = 1
+        # Apply minimum FIRST
+        if R_m_s > 0 and R_m_s < 0.001:
+            R_m_s = 0.001  # Minimum backing fire rate
+        # Then apply maximum cap - raised to 2.0 for extreme conditions
+        if R_m_s > 2.0:
+            R_m_s = 2.0
         return R_m_s
 else:
     # Fallback pure-Python version
@@ -233,12 +237,12 @@ else:
         R_m_s = (R_ft_min / 60.0) * 0.3048
         R_m_s *= dir_factor
         
-        # Apply minimum FIRST - increased to 0.01 to prevent very late arrivals
-        if R_m_s > 0 and R_m_s < 0.01:
-            R_m_s = 0.01  # 10x faster than before - prevents holes
-        # Then apply maximum cap
-        if R_m_s > 1:
-            R_m_s = 1
+        # Apply minimum FIRST
+        if R_m_s > 0 and R_m_s < 0.001:
+            R_m_s = 0.001  # Minimum backing fire rate
+        # Then apply maximum cap - raised to 2.0 for extreme conditions
+        if R_m_s > 2.0:
+            R_m_s = 2.0
 
         if math.isclose(beta_op, 0.0) or math.isclose(beta, 0.0):
             print(f"DEBUG: beta={beta}, beta_op={beta_op}, sigma_eff={sigma_eff}")
@@ -414,6 +418,28 @@ class FireAgent(Agent):
         self._burn_end  = np.full((rows, cols), np.inf, dtype=np.float64)
         self._frontier  = []
 
+        # DEBUG: Print fuel parameters for center cell
+        center_r, center_c = rows // 2, cols // 2
+        print(f"\n{'='*70}")
+        print(f"FUEL PARAMETERS AT CENTER CELL ({center_r}, {center_c})")
+        print(f"{'='*70}")
+        print(f"  Fuel code: {int(self.fuel_codes[center_r, center_c])}")
+        print(f"  Fuel load: {self.fuel_loads[center_r, center_c]:.4f} kg/m²")
+        print(f"  Bed depth: {self.bed_depths[center_r, center_c]:.4f} m")
+        print(f"  Bulk density: {self.fuel_loads[center_r, center_c]/self.bed_depths[center_r, center_c]:.4f} kg/m³")
+        print(f"  Heat content: {self.heat_contents[center_r, center_c]:.4f} kJ/kg")
+        print(f"  Moisture: {self.moistures[center_r, center_c]:.4f}")
+        print(f"  SAV (1-h dead): {self.sigmas[center_r, center_c]:.4f} ft⁻¹")
+        print(f"  Dead 1-h fuel: {self.dead_1hs[center_r, center_c]:.4f} ton/acre")
+        print(f"  Live herb fuel: {self.live_herbs[center_r, center_c]:.4f} ton/acre")
+        print(f"  Slope: {self.slopes[center_r, center_c]:.2f}°")
+        print(f"")
+        print(f"FIRE CONDITIONS:")
+        print(f"  Wind speed: {self.wind_speed:.2f} mph (20-ft)")
+        print(f"  Wind direction: {self.wind_direction:.1f}° (from)")
+        print(f"  Cell size: {self.model.cell_size:.2f} m")
+        print(f"{'='*70}\n")
+
         # Seed ignition cells
         burning_seed = np.argwhere(self.burning_mask)
         for r0, c0 in burning_seed:
@@ -448,6 +474,39 @@ class FireAgent(Agent):
                 self.live_herbs[r, c],
                 self.curing_fraction[r, c],
             )
+            
+            # DEBUG: Log high ROS values (outside numba so f-strings work)
+            if ros > 1.0 and not hasattr(self, '_high_ros_logged'):
+                self._high_ros_logged = True
+                print(f"\n{'='*70}")
+                print(f"⚠️  HIGH RATE OF SPREAD DETECTED")
+                print(f"{'='*70}")
+                print(f"Cell: ({r}, {c}), Direction: {dir_k}")
+                print(f"ROS: {ros:.6f} m/s (hitting cap of 2.0 m/s)")
+                print(f"")
+                print(f"Fuel parameters at this cell:")
+                print(f"  Fuel code: {int(self.fuel_codes[r, c])}")
+                print(f"  Fuel load: {self.fuel_loads[r, c]:.4f} kg/m²")
+                print(f"  Bed depth: {self.bed_depths[r, c]:.4f} m")
+                print(f"  Bulk density: {self.fuel_loads[r, c]/self.bed_depths[r, c]:.4f} kg/m³")
+                print(f"  Heat content: {self.heat_contents[r, c]:.4f} kJ/kg")
+                print(f"  Moisture: {self.moistures[r, c]:.4f}")
+                print(f"  SAV: {self.sigmas[r, c]:.4f} ft⁻¹")
+                print(f"  Dead 1-h: {self.dead_1hs[r, c]:.4f} ton/acre")
+                print(f"  Live herb: {self.live_herbs[r, c]:.4f} ton/acre")
+                print(f"  Slope: {self.slopes[r, c]:.2f}°")
+                print(f"")
+                print(f"Fire conditions:")
+                print(f"  Wind speed: {self.wind_speed:.2f} mph")
+                print(f"  Direction factor: {self._dir_factors[dir_k]:.4f}")
+                print(f"")
+                print(f"⚠️  This ROS of {ros:.3f} m/s is {ros/0.1:.1f}x a typical grassland fire!")
+                print(f"   Expected range: 0.01-0.5 m/s for most fuels")
+                print(f"   With your cell_size of {self.model.cell_size}m, this means:")
+                print(f"   - Adjacent cells ignite in {self.model.cell_size/ros/60:.2f} minutes")
+                print(f"   - Should be more like {self.model.cell_size/0.1/60:.2f} minutes for grassland")
+                print(f"{'='*70}\n")
+                
         except Exception as e:
             print(f"Numba error at cell {r},{c} dir {dir_k}: {e}")
             raise
@@ -601,7 +660,7 @@ class FireAgent(Agent):
                             self._forced_ros_count = 0
                         self._forced_ros_count += 1
                         if self._forced_ros_count <= 5:
-                            print(f"Cell ({rr},{cc}): ROS=0 but fuel_load={self.fuel_loads[rr,cc]:.4f}, "
+                            print(f"⚠️  Cell ({rr},{cc}): ROS=0 but fuel_load={self.fuel_loads[rr,cc]:.4f}, "
                                   f"forcing to 0.001 m/s (case #{self._forced_ros_count})")
                     else:
                         continue
