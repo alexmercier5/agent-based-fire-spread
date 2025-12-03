@@ -51,8 +51,8 @@ def plot_fire_grid(model, fuel_cmap_path="fuel_cmap.csv"):
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    tif_path = os.path.join(script_dir, "utils/8900main.tif")
-    # tif_path = os.path.join(script_dir, "utils/resampled_main.tif")
+    # tif_path = os.path.join(script_dir, "utils/8900main.tif")
+    tif_path = os.path.join(script_dir, "utils/resampled_main.tif")
     cmap_path = os.path.join(script_dir, "utils/fuel_cmap.csv")
     model = FireSpreadModel(tif_path)
     saveMTTS = True
