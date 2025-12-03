@@ -153,10 +153,13 @@ Contains the Mesa `Model` and agent implementations.
 
 ```bash
 # Create and activate a virtual environment
+
 # Clone repository to local directory
 git clone https://github.com/alexmercier5/agent-based-fire-spread
+
 # Install required packages
 pip install -r requirements.txt
+
 # (Optional) Preprocess / resample the landscape
 python setup.py  # or call resample_tif(...) from a Python session
 
